@@ -96,7 +96,6 @@ contract DSCEngine is ReentrancyGuard {
     ///////////////
     // Modifiers //
     ///////////////
-
     modifier moreThanZero(uint256 amount) {
         if (amount == 0) {
             revert DSCEngine__NeedMoreThanZero();
@@ -114,7 +113,6 @@ contract DSCEngine is ReentrancyGuard {
     ///////////////
     // Functions //
     ///////////////
-
     constructor(address[] memory tokenAddresses, address[] memory priceFeedAddresses, address dscAddress) {
         if (tokenAddresses.length != priceFeedAddresses.length) {
             revert DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();
@@ -317,9 +315,17 @@ contract DSCEngine is ReentrancyGuard {
         // total DSC minted
         // total collateral VALUE
         (uint256 totalDscMinted, uint256 collateralValueInUsdt) = _getAccountInformation(user);
-        uint256 collateralAdjustedForThreshold = (collateralValueInUsdt * LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
+        return _calculateHealthFactor(totalDscMinted, collateralValueInUsdt);
+    }
 
-        return (collateralAdjustedForThreshold * PRECISION) / totalDscMinted;
+    function _calculateHealthFactor(uint256 totalDscMinted, uint256 collateralValueInUsd)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (totalDscMinted == 0) return type(uint256).max;
+        uint256 collateralAdjustForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
+        return (collateralAdjustForThreshold * PRECISION) / totalDscMinted;
     }
 
     // 1. check health factor (do they have enough collateral?)
@@ -369,5 +375,13 @@ contract DSCEngine is ReentrancyGuard {
         returns (uint256 totalDscMinted, uint256 collateralValueInUsd)
     {
         (totalDscMinted, collateralValueInUsd) = _getAccountInformation(user);
+    }
+
+    function calculateHealthFactor(uint256 totalDscMinted, uint256 collateralValueInUsd)
+        external
+        pure
+        returns (uint256)
+    {
+        return _calculateHealthFactor(totalDscMinted, collateralValueInUsd);
     }
 }
