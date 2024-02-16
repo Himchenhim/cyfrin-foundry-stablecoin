@@ -265,13 +265,14 @@ contract DSCEngine is ReentrancyGuard {
 
         // 0.05 ETH * .1 = 0.005 ETH -> Getting 0.055 ETH as a bonus
         uint256 bonusCollateral = (tokenAmountFromDebtCovered * LIQUIDATION_BONUS) / LIQUIDATION_PRECISION;
-        uint256 totalCollateralToRedeem = tokenAmountFromDebtCovered + bonusCollateral;
-        _redeemCollateral(userToLiquidate, msg.sender, tokenCollateralAddress, totalCollateralToRedeem);
+        _redeemCollateral(
+            userToLiquidate, msg.sender, tokenCollateralAddress, tokenAmountFromDebtCovered + bonusCollateral
+        );
 
         _burnDsc(debtToCover, userToLiquidate, msg.sender);
 
         uint256 endingUserHealthFactor = _healthFactor(userToLiquidate);
-        if (endingUserHealthFactor <= 1) {
+        if (endingUserHealthFactor <= MIN_HEALTH_FACTOR) {
             revert DSCEngine__HealthFactorNotImproved();
         }
 
