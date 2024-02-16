@@ -8,6 +8,7 @@ import {DecentralizedStableCoin} from "../../src/DecentralizedStableCoin.sol";
 import {DSCEngine} from "../../src/DSCEngine.sol";
 import {HelperConfig} from "../../script/HelperConfig.s.sol";
 import {ERC20Mock} from "../../lib/openzeppelin-contracts/contracts/mocks/token/ERC20Mock.sol";
+import {MockV3Aggregator} from "../mocks/MockV3Aggregator.sol";
 
 contract DSCEngineTest is Test {
     DeployDSC deployer;
@@ -24,11 +25,16 @@ contract DSCEngineTest is Test {
     uint256 public constant STARTING_ERC20_BALANCE = 10 ether;
     uint256 public constant AMOUNT_TO_MINT = 1 ether; // !IMPORTANT! in this case: 1 ether === 1 USD
 
+    // ADDRESS:
+    address public LIQUIDATOR = makeAddr("owner");
+    uint256 public STARTING_LIQUIDATOR_BALANCE = 100 ether;
+
     function setUp() public {
         deployer = new DeployDSC();
         (dsc, dsce, config) = deployer.run();
         (ethUsdPriceFeed, btcUsdPriceFeed, weth, wbtc,) = config.activeNetworkConfig();
         ERC20Mock(weth).mint(USER, STARTING_ERC20_BALANCE);
+        ERC20Mock(weth).mint(LIQUIDATOR, STARTING_LIQUIDATOR_BALANCE);
     }
 
     ///////////////////////
@@ -108,8 +114,11 @@ contract DSCEngineTest is Test {
     /////////////////////////////
     function testMintDSCwithNotEnoughCollateral() public depositedCollateral {
         vm.startPrank(USER);
-        vm.expectRevert(DSCEngine.DSCEngine__BreakHealthFactor.selector);
-        dsce.mintDsc(10e18);
+        uint256 amountOfNotPermittedMint = 10001 * AMOUNT_TO_MINT;
+        uint256 expectedHealthFactor =
+            dsce.calculateHealthFactor(amountOfNotPermittedMint, dsce.getUsdValue(weth, AMOUNT_COLLATERAL));
+        vm.expectRevert(abi.encodeWithSelector(DSCEngine.DSCEngine__BreakHealthFactor.selector, expectedHealthFactor));
+        dsce.mintDsc(10001 * AMOUNT_TO_MINT);
         vm.stopPrank();
     }
 
@@ -275,8 +284,101 @@ contract DSCEngineTest is Test {
         vm.stopPrank();
     }
 
-    // TODO: liquidate test
     /////////////////////////////
-    // liquidate Tests     //
+    // liquidate Tests         //
     /////////////////////////////
+
+    function testHealthNotImprovedAfterLiquidation() public depositedCollateral {
+        vm.startPrank(USER);
+        dsce.mintDsc(10000 * AMOUNT_TO_MINT);
+        vm.stopPrank();
+
+        int256 ethUsdUpdatedPrice = 1000e8; // 1 ETH = $1000
+        uint256 debtToCover = 100 * AMOUNT_TO_MINT; // $1
+
+        vm.startPrank(LIQUIDATOR);
+        MockV3Aggregator(ethUsdPriceFeed).updateAnswer(ethUsdUpdatedPrice);
+
+        ERC20Mock(weth).approve(address(dsce), STARTING_LIQUIDATOR_BALANCE);
+        dsce.depositCollateral(weth, STARTING_LIQUIDATOR_BALANCE);
+        dsce.mintDsc(debtToCover);
+        dsc.approve(address(dsce), debtToCover);
+
+        vm.expectRevert(DSCEngine.DSCEngine__HealthFactorNotImproved.selector);
+        dsce.liquidate(weth, USER, debtToCover);
+
+        vm.stopPrank();
+    }
+
+    function testCantLiquidateGoodHealthFactor() public depositedCollateral {
+        vm.startPrank(USER);
+        dsce.mintDsc(10000 * AMOUNT_TO_MINT);
+        vm.stopPrank();
+
+        uint256 debtToCover = 100 * AMOUNT_TO_MINT; // $100
+
+        vm.startPrank(LIQUIDATOR);
+
+        ERC20Mock(weth).approve(address(dsce), STARTING_LIQUIDATOR_BALANCE);
+        dsce.depositCollateral(weth, STARTING_LIQUIDATOR_BALANCE);
+        dsce.mintDsc(debtToCover);
+        dsc.approve(address(dsce), debtToCover);
+
+        vm.expectRevert(DSCEngine.DSCEngine__HealthFactorOk.selector);
+        dsce.liquidate(weth, USER, debtToCover);
+
+        vm.stopPrank();
+    }
+
+    function testLiquidationIsNotHappenedBecauseOfBadHealthFactorOfLiquidator() public depositedCollateral {
+        vm.startPrank(USER);
+        dsce.mintDsc(10000 * AMOUNT_TO_MINT);
+        vm.stopPrank();
+
+        // uint256 public STARTING_LIQUIDATOR_BALANCE = 100 ether;
+
+        int256 ethUsdUpdatedPrice = 1000e8; // 1 ETH = $1000
+        uint256 debtToCover = 100 * AMOUNT_TO_MINT; // $1
+        uint256 mintToLiquidator = 1000 * STARTING_LIQUIDATOR_BALANCE;
+
+        vm.startPrank(LIQUIDATOR);
+
+        ERC20Mock(weth).approve(address(dsce), STARTING_LIQUIDATOR_BALANCE);
+        dsce.depositCollateral(weth, STARTING_LIQUIDATOR_BALANCE);
+        dsce.mintDsc(mintToLiquidator);
+        dsc.approve(address(dsce), mintToLiquidator);
+
+        MockV3Aggregator(ethUsdPriceFeed).updateAnswer(ethUsdUpdatedPrice);
+
+        uint256 expectedHealthFactor =
+            dsce.calculateHealthFactor(mintToLiquidator, dsce.getUsdValue(weth, STARTING_LIQUIDATOR_BALANCE));
+
+        vm.expectRevert(abi.encodeWithSelector(DSCEngine.DSCEngine__BreakHealthFactor.selector, expectedHealthFactor));
+        dsce.liquidate(weth, USER, debtToCover);
+
+        vm.stopPrank();
+    }
+
+    function testLiquidationIsSuccessul() public depositedCollateral {
+        vm.startPrank(USER);
+        dsce.mintDsc(10000 * AMOUNT_TO_MINT);
+        vm.stopPrank();
+
+        // uint256 public STARTING_LIQUIDATOR_BALANCE = 100 ether;
+
+        int256 ethUsdUpdatedPrice = 1999e8; // 1 ETH = $1000
+        uint256 mintToLiquidator = 100 * STARTING_LIQUIDATOR_BALANCE;
+
+        vm.startPrank(LIQUIDATOR);
+        MockV3Aggregator(ethUsdPriceFeed).updateAnswer(ethUsdUpdatedPrice);
+
+        ERC20Mock(weth).approve(address(dsce), STARTING_LIQUIDATOR_BALANCE);
+        dsce.depositCollateral(weth, STARTING_LIQUIDATOR_BALANCE);
+        dsce.mintDsc(mintToLiquidator);
+        dsc.approve(address(dsce), mintToLiquidator);
+
+        dsce.liquidate(weth, USER, 10000 * AMOUNT_TO_MINT);
+
+        vm.stopPrank();
+    }
 }
