@@ -26,9 +26,7 @@ pragma solidity ^0.8.20;
 import {DecentralizedStableCoin} from "../src/DecentralizedStableCoin.sol";
 import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {AggregatorV3Interface} from
-    "../lib/chainlink-brownie-contracts/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
-
+import {OracleLib, AggregatorV3Interface} from "./libraries/OracleLib.sol";
 /**
  * @title DSCEngine
  * @author Patrick Collins & Dmytro Khimchenko
@@ -66,6 +64,11 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__AmountToExtractMoreThanAmountOfCollateral();
     error DSCEngine__HealthFactorOk();
     error DSCEngine__HealthFactorNotImproved();
+
+    ////////////////////////////////////////////////
+    // Types                                      //
+    ////////////////////////////////////////////////
+    using OracleLib for AggregatorV3Interface;
 
     ///////////////////////
     // State variables ////
@@ -346,7 +349,7 @@ contract DSCEngine is ReentrancyGuard {
         // $/ETH ETH ??
         // $2000 / ETH. $1000 = 0.5ETH
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
-        (, int256 price,,,) = priceFeed.latestRoundData();
+        (, int256 price,,,) = priceFeed.staleCheckLatestRoundData();
         return (usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION);
     }
 
