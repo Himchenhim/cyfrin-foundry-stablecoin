@@ -16,3 +16,10 @@ Main function: "liquidate":
             ->
             liquidator gets $50 + $5 from "userToLiquidate" account on HIS OWN account of collaterals.
             OTHER $20 dollars STAY(!!!) on the  "userToLiquidate" account
+
+
+1. What are our invariant/properties?
+   1. ratio between collateral / loan. We always must have 200% amount of value in $ of collateral for our loan, which we perceive as our 100% amount. -> write fuzz test for it
+
+
+1. Proper Oracle Use
